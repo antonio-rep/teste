@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Paris e Lisboa</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1B3F8B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Paris e Lisboa">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<style>
+:root { --bg: #F2F4F8; --ink: #16213A; --muted: #5A6478; --plaque: #1B3F8B; --frame: #2E6B4F; --error: #9B2C2C; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0D1322; --ink: #E7EBF3; --muted: #9BA6BC; --plaque: #24499A; --frame: #3A8462; --error: #F2A19B; color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+main { width: min(380px, 100%); display: grid; gap: 18px; }
+.plaque { background: var(--plaque); color: #fff; border: 4px solid var(--frame); border-radius: 14px; padding: 18px 20px;
+  box-shadow: inset 0 0 0 2px var(--plaque), inset 0 0 0 3.5px rgba(255,255,255,.85); }
+.plaque small { display: block; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; font-weight: 600; }
+.plaque h1 { margin: 2px 0 0; font: 600 30px/1.1 Georgia, "Times New Roman", serif; }
+form { display: grid; gap: 12px; }
+label { font-weight: 600; font-size: 14px; }
+input[type=password] { width: 100%; font: inherit; padding: 12px 14px; border-radius: 10px; border: 1px solid #C9D0DC; background: transparent; color: inherit; }
+.remember { display: flex; gap: 8px; align-items: center; font-weight: 400; color: var(--muted); }
+button { font: 600 16px system-ui, sans-serif; padding: 12px; border-radius: 10px; border: 0; background: var(--plaque); color: #fff; cursor: pointer; }
+button:disabled { opacity: .6; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--frame); outline-offset: 2px; }
+.msg { min-height: 1.5em; margin: 0; font-size: 14px; color: var(--muted); }
+.msg.error { color: var(--error); }
+</style>
+</head>
+<body>
+<main>
+  <div class="plaque"><small>Roteiro de viagem</small><h1>Paris e Lisboa</h1></div>
+  <form id="unlock" autocomplete="off">
+    <label for="senha">Senha</label>
+    <input type="password" id="senha" name="senha" autocomplete="current-password" required>
+    <label class="remember" for="lembrar"><input type="checkbox" id="lembrar" checked> Lembrar neste aparelho</label>
+    <button type="submit" id="abrir">Abrir roteiro</button>
+    <p class="msg" id="msg" role="status" aria-live="polite"></p>
+  </form>
+</main>
+<script>
+"use strict";
+// Cache offline: registrado antes de tudo para guardar a página e o roteiro criptografado
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+const DB_NAME = "paris-lisboa";
+const form = document.getElementById("unlock");
+const msg = document.getElementById("msg");
+const button = document.getElementById("abrir");
+
+function setMessage(text, isError) {
+  msg.textContent = text;
+  msg.classList.toggle("error", Boolean(isError));
+}
+
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+// A chave derivada é guardada como CryptoKey não exportável: o navegador usa, mas não deixa ler
+function withStore(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("keys");
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction("keys", mode);
+      const result = fn(tx.objectStore("keys"));
+      tx.oncomplete = () => resolve(result && "result" in result ? result.result : undefined);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+const loadKey = () => withStore("readonly", s => s.get("main")).catch(() => undefined);
+const saveKey = key => withStore("readwrite", s => s.put(key, "main")).catch(() => {});
+const forgetKey = () => withStore("readwrite", s => s.delete("main")).catch(() => {});
+
+async function loadPayload() {
+  const res = await fetch("payload.json", { cache: "no-cache" }).catch(() => null)
+    || await caches.match("payload.json");
+  if (!res || !res.ok) throw new Error("payload");
+  return res.json();
+}
+
+async function deriveKey(password, payload) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256", salt: fromB64(payload.salt), iterations: payload.iter },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+}
+
+async function decrypt(key, payload) {
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromB64(payload.iv) }, key, fromB64(payload.ct));
+  return new TextDecoder().decode(plain);
+}
+
+function show(html) {
+  document.open();
+  document.write(html);
+  document.close();
+}
+
+async function tryRemembered(payload) {
+  const key = await loadKey();
+  if (!key) return false;
+  try {
+    show(await decrypt(key, payload));
+    return true;
+  } catch {
+    // Roteiro foi recriptografado com outra senha: a chave antiga não serve mais
+    await forgetKey();
+    return false;
+  }
+}
+
+async function start() {
+  if (!window.crypto || !crypto.subtle) {
+    setMessage("Este navegador não permite abrir o roteiro. Abra pelo endereço https:// no Safari.", true);
+    button.disabled = true;
+    return;
+  }
+  let payload;
+  try {
+    payload = await loadPayload();
+  } catch {
+    setMessage("Não consegui carregar o roteiro. Abra uma vez com internet para guardar no aparelho.", true);
+    button.disabled = true;
+    return;
+  }
+  if (await tryRemembered(payload)) return;
+
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const password = document.getElementById("senha").value;
+    button.disabled = true;
+    setMessage("Abrindo…");
+    try {
+      const key = await deriveKey(password, payload);
+      const html = await decrypt(key, payload);
+      if (document.getElementById("lembrar").checked) await saveKey(key);
+      show(html);
+    } catch {
+      setMessage("Senha incorreta. Tente de novo.", true);
+      button.disabled = false;
+    }
+  });
+}
+
+start();
+</script>
+</body>
+</html>
