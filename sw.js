@@ -1,5 +1,5 @@
 // Cache offline do app. O build.py troca CACHE_VERSION a cada novo roteiro.
-const CACHE_VERSION = "5b984d0a8785";
+const CACHE_VERSION = "5b984d0a8785-r";
 const APP_CACHE = `app-${CACHE_VERSION}`;
 const FONT_CACHE = "fonts-v1";
 const APP_FILES = [
@@ -7,9 +7,9 @@ const APP_FILES = [
   "./index.html",
   "./payload.json",
   "./manifest.webmanifest",
-  "./icons/icon-180.png",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icon-180.png",
+  "./icon-192.png",
+  "./icon-512.png"
 ];
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 
