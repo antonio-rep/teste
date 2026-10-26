@@ -1,5 +1,5 @@
 // Cache offline do app. O build.py troca CACHE_VERSION a cada novo roteiro.
-const CACHE_VERSION = "5b984d0a8785-r";
+const CACHE_VERSION = "af0094499600";
 const APP_CACHE = `app-${CACHE_VERSION}`;
 const FONT_CACHE = "fonts-v1";
 const APP_FILES = [
